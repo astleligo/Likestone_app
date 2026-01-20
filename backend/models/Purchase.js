@@ -72,7 +72,6 @@ const purchaseSchema = new mongoose.Schema(
         },
         totalAmount: {
             type: Number,
-            required: true,
             min: 0,
         },
         purchaseDate: {
@@ -107,28 +106,28 @@ const purchaseSchema = new mongoose.Schema(
         },
 
         // Purpose
-        purchaseFor: {
-            type: String,
-            enum: ["Office", "Project"],
-            required: true,
-        },
-        project: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "Project",
-        },
+        // purchaseFor: {
+        //     type: String,
+        //     enum: ["Office", "Project"],
+        //     required: true,
+        // },
+        // project: {
+        //     type: mongoose.Schema.Types.ObjectId,
+        //     ref: "Project",
+        // },
 
-        // Storage information
-        storageLocation: {
-            type: String,
-            enum: ["Site", "Inventory"],
-            required: true,
-        },
+        // // Storage information
+        // storageLocation: {
+        //     type: String,
+        //     enum: ["Site", "Inventory"],
+        //     required: true,
+        // },
 
-        // If stored directly to a project site
-        site: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "Site",
-        },
+        // // If stored directly to a project site
+        // site: {
+        //     type: mongoose.Schema.Types.ObjectId,
+        //     ref: "Site",
+        // },
 
         // Invoice upload metadata
         invoice: InvoiceFileSchema,
@@ -167,43 +166,35 @@ purchaseSchema.pre("save", function (next) {
 });
 
 /* 🔁 Post-save: Update Inventory if goods are stored in Inventory */
-purchaseSchema.post("save", async function (doc) {
-    try {
-        if (doc.storageLocation === "Inventory" && !doc.inventoryUpdated) {
-            const existingItem = await Inventory.findOne({
-                itemName: doc.itemName,
-                category: doc.category,
-                unit: doc.unit,
-                supplier: doc.supplier,
-            });
+purchaseSchema.pre("save", function (next) {
+    const qty = Number(this.quantity || 0);
+    const rate = Number(this.rate || 0);
 
-            if (existingItem) {
-                // Increment existing quantity
-                existingItem.quantity += doc.quantity;
-                existingItem.rate = doc.rate; // optional: update latest rate
-                await existingItem.save();
-            } else {
-                // Create new inventory item
-                await Inventory.create({
-                    category: doc.category,
-                    itemName: doc.itemName,
-                    supplier: doc.supplier,
-                    unit: doc.unit,
-                    quantity: doc.quantity,
-                    rate: doc.rate,
-                    purchaseDate: doc.purchaseDate,
-                    billFile: doc.invoice?.url || "",
-                });
-            }
+    const baseTotal = qty * rate;
+    const additionalTotal = (this.additionalCosts || []).reduce(
+        (sum, c) => sum + Number(c.amount || 0),
+        0
+    );
 
-            // Mark purchase as updated to prevent duplicate increments
-            doc.inventoryUpdated = true;
-            await doc.save();
-        }
-    } catch (err) {
-        console.error("Error updating inventory after purchase:", err);
+    this.totalAmount = baseTotal + additionalTotal;
+
+    // 🔒 normalize amountPaid
+    const paid = Number(this.amountPaid || 0);
+
+    if (paid >= this.totalAmount) {
+        this.paymentStatus = "Paid";
+        if (!this.paidOn) this.paidOn = new Date();
+    } else if (paid > 0) {
+        this.paymentStatus = "Partial";
+    } else {
+        this.paymentStatus = "Pending";
     }
+
+    this.amountPaid = paid; // ensure it is always a number
+
+    next();
 });
+
 
 const Purchase = mongoose.model("Purchase", purchaseSchema);
 module.exports = Purchase;

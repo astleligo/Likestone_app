@@ -8,8 +8,8 @@ const updateSupplierBalance = async (supplierId) => {
     let totalPaid = 0;
 
     purchases.forEach((p) => {
-        totalPurchases += p.totalAmount;
-        totalPaid += p.payment.amountPaid || 0;
+        totalPurchases += Number(p.totalAmount || 0);
+        totalPaid += Number(p.amountPaid || 0);
     });
 
     const balance = totalPurchases - totalPaid;
@@ -30,9 +30,13 @@ const addPurchase = async (req, res) => {
             unit,
             quantity,
             rate,
-            totalAmount,
-            purchaseDate,
-            payment,
+            additionalCosts,
+            amountPaid,
+            // purchaseFor,          
+            // storageLocation,      
+            // project: purchaseFor === "Project" ? project : null,
+            //     site: storageLocation === "Site" ? site : null,
+            // purchasedBy: req.user._id
         } = req.body;
 
         const newPurchase = await Purchase.create({
@@ -42,9 +46,8 @@ const addPurchase = async (req, res) => {
             unit,
             quantity,
             rate,
-            totalAmount,
-            purchaseDate,
-            payment,
+            additionalCosts,
+            amountPaid,
         });
 
         await updateSupplierBalance(supplier);
@@ -85,23 +88,25 @@ const getPurchasesBySupplier = async (req, res) => {
 const editPurchase = async (req, res) => {
     try {
         const { id } = req.params;
-        const updatedPurchase = await Purchase.findByIdAndUpdate(id, req.body, {
-            new: true,
-        });
 
-        if (!updatedPurchase)
+        const purchase = await Purchase.findById(id);
+        if (!purchase)
             return res.status(404).json({ message: "Purchase not found" });
 
-        await updateSupplierBalance(updatedPurchase.supplier);
+        Object.assign(purchase, req.body);
+        await purchase.save(); // 🔥 triggers pre-save hook
+
+        await updateSupplierBalance(purchase.supplier);
 
         res.json({
             message: "Purchase updated successfully",
-            purchase: updatedPurchase,
+            purchase,
         });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
 };
+
 
 const patchPurchase = async (req, res) => {
     try {
